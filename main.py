@@ -1,31 +1,18 @@
 import re
 import json
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+import requests
 from bs4 import BeautifulSoup
 from googletrans import Translator
+import pandas as pd
 
 
-def crawl_text_from_html_file(file_path, target_prefix='article_content_article_body'):
+def crawl_text_from_html(html_content, target_prefix='article_content_article_body'):
     try:
-        # Set up Chrome options
-        chrome_options = Options()
-
-        driver = webdriver.Chrome(options=chrome_options)
-
-        driver.get(file_path)
-
-        driver.implicitly_wait(10)
-
-        page_source = driver.page_source
-
-        soup = BeautifulSoup(page_source, 'html.parser')
+        soup = BeautifulSoup(html_content, 'html.parser')
 
         target_elements = soup.find_all(class_=re.compile(f'^{re.escape(target_prefix)}'))
 
         text_content = ' '.join(line.strip() for element in target_elements for line in element.stripped_strings)
-
-        driver.quit()
 
         return text_content
     except Exception as e:
@@ -36,7 +23,6 @@ def crawl_text_from_html_file(file_path, target_prefix='article_content_article_
 def translate_to_vietnamese(text):
     translator = Translator()
 
-    # Check if the text is None or empty
     if not text:
         return None
 
@@ -56,12 +42,47 @@ def save_to_json(data, filename='output.json'):
         json.dump(data, json_file, ensure_ascii=False, indent=4)
 
 
-html_file_path = 'file:///C:/Users/Admin/Downloads/Signs%20and%20Symptoms%20of%20Dog%20Food%20Allergies%20_%20PetMD.html'
-result = crawl_text_from_html_file(html_file_path, target_prefix='article_content_article_body')
+def fetch_html_content(url):
+    try:
+        response = requests.get(url)
 
-if result:
-    translated_result = translate_to_vietnamese(result)
+        if response.status_code == 200:
+            return response.text
+        else:
+            print(f"Failed to retrieve HTML. Status code: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
 
-    save_to_json({'text_content': translated_result}, 'output.json')
-    print("Data saved to output.json")
+
+# read data from excel to get link url
+excel_file_path = 'file1.csv'
+
+df = pd.read_csv(excel_file_path)
+
+# fetching from link
+for i in range(len(df["Url"])):
+    url_to_scrape = df["Url"][i]
+    html_content = fetch_html_content(url_to_scrape)
+
+    if html_content:
+        result = crawl_text_from_html(html_content, target_prefix='article_content_article_body')
+
+        if result:
+            translated_result = translate_to_vietnamese(result)
+
+            output_data = {}
+            output_file = 'output.json'
+
+            try:
+                with open(output_file, 'r', encoding='utf-8') as json_file:
+                    output_data = json.load(json_file)
+            except FileNotFoundError:
+                pass
+            output_data[df["post_name"][i]] = translated_result
+
+            save_to_json(output_data, output_file)
+
+            print("Data appended to output.json")
 
